@@ -17,6 +17,9 @@ export interface UIElement {
     borderOpacity: number;
     glow?: number;
     glowColor?: string;
+    lightAngle?: number;
+    shadowDistance?: number;
+    shadowOpacity?: number;
   };
   text?: string;
   fontSize?: number;

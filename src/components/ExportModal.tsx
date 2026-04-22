@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useUIStore } from '../store/useStore';
-import { X, Code, FileJson, LayoutTemplate, Download } from 'lucide-react';
-import { UIElement } from '../types';
+import { X, Code, FileJson, LayoutTemplate, Download, Image as ImageIcon } from 'lucide-react';
+import { toPng, toJpeg } from 'html-to-image';
 
 export default function ExportModal({ onClose }: { onClose: () => void }) {
   const { currentProject, isDarkTheme } = useUIStore();
-  const [activeTab, setActiveTab] = useState<'json' | 'html' | 'godot'>('json');
+  const [activeTab, setActiveTab] = useState<'json' | 'html' | 'godot' | 'image'>('json');
+  const [isExportingImage, setIsExportingImage] = useState(false);
 
   if (!currentProject) return null;
 
@@ -24,10 +25,20 @@ export default function ExportModal({ onClose }: { onClose: () => void }) {
       let styles = `position: absolute; left: ${el.x}px; top: ${el.y}px; width: ${el.width}px; height: ${el.height}px; border-radius: ${el.cornerRadius}px;`;
       
       if (el.glassmorphism) {
-        const { blur, backgroundOpacity, borderOpacity, glow, glowColor } = el.glassmorphism;
+        const { blur, backgroundOpacity, borderOpacity, glow, glowColor, lightAngle = 135, shadowDistance = 8, shadowOpacity = 0.1 } = el.glassmorphism;
         const bgRgba = hexToRgbaCSS(el.fill || '#ffffff', backgroundOpacity);
         const borderRgba = hexToRgbaCSS('#ffffff', borderOpacity);
-        const shadow = glow ? `0 8px 32px 0 ${hexToRgbaCSS(glowColor || el.fill || '#ffffff', glow / 100)}, inset 0 0 0 1px ${borderRgba}` : `0 8px 32px 0 rgba(0,0,0,0.1), inset 0 0 0 1px ${borderRgba}`;
+        
+        const rad = lightAngle * (Math.PI / 180);
+        const shadowX = Math.cos(rad) * shadowDistance;
+        const shadowY = Math.sin(rad) * shadowDistance;
+        
+        let shadow = '';
+        if (glow && glow > 0) {
+            shadow = `0 8px 32px 0 ${hexToRgbaCSS(glowColor || el.fill || '#ffffff', glow / 100)}, inset 0 0 0 1px ${borderRgba}`;
+        } else {
+            shadow = `${shadowX}px ${shadowY}px ${blur * 0.75}px rgba(0,0,0,${shadowOpacity}), inset 0 0 0 1px ${borderRgba}`;
+        }
         
         styles += ` background: ${bgRgba}; backdrop-filter: blur(${blur}px); -webkit-backdrop-filter: blur(${blur}px); box-shadow: ${shadow}; border: 1px solid ${borderRgba};`;
       } else if (el.type !== 'text') {
@@ -69,7 +80,6 @@ ${elementsHTML}
   };
 
   const generateGodot = () => {
-    // Basic Godot 4 CanvasLayer / Control nodes text format representation
     let tscn = `[gd_scene load_steps=2 format=3]
 
 [node name="MainUI" type="CanvasLayer"]
@@ -86,7 +96,7 @@ grow_vertical = 2\n\n`;
       const isCard = el.type.includes('glass');
       const isText = el.type === 'text';
       const nodeType = isText ? 'Label' : (isCard ? 'Panel' : 'ColorRect');
-      const nodeName = el.name.replace(/\\s+/g, '') + '_' + index;
+      const nodeName = el.name.replace(/\s+/g, '') + '_' + index;
 
       tscn += `[node name="${nodeName}" type="${nodeType}" parent="Container"]
 offset_left = ${el.x}
@@ -103,7 +113,7 @@ offset_bottom = ${el.y + el.height}
     return tscn;
   };
 
-  const handleDownload = (content: string, filename: string, mime: string) => {
+  const handleDownloadFile = (content: string, filename: string, mime: string) => {
     const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -112,8 +122,39 @@ offset_bottom = ${el.y + el.height}
     a.click();
     URL.revokeObjectURL(url);
   };
+  
+  const handleExportImage = async (format: 'png' | 'jpeg') => {
+    const node = document.getElementById('export-canvas-frame');
+    if (!node) {
+      alert("Canvas wrapper not found.");
+      return;
+    }
+    
+    try {
+      setIsExportingImage(true);
+      // Brief delay to let ui settle
+      await new Promise(r => setTimeout(r, 100));
+      
+      const dataUrl = format === 'png' 
+        ? await toPng(node, { cacheBust: true, pixelRatio: 2 })
+        : await toJpeg(node, { cacheBust: true, pixelRatio: 2, quality: 0.95 });
+        
+      const link = document.createElement('a');
+      link.download = `${currentProject.name}.${format}`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Failed to export image', err);
+      alert('Failed to generate image from canvas.');
+    } finally {
+      setIsExportingImage(false);
+    }
+  };
 
-  const activeContent = activeTab === 'json' ? generateJSON() : activeTab === 'html' ? generateHTML() : generateGodot();
+  const activeContent = activeTab === 'json' ? generateJSON() 
+                      : activeTab === 'html' ? generateHTML() 
+                      : activeTab === 'godot' ? generateGodot() 
+                      : "Click the buttons below to export a high-quality raster image of your active artboard frame. Includes backgrounds, shadows, and text.";
   
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -124,28 +165,52 @@ offset_bottom = ${el.y + el.height}
         </div>
         
         <div className="flex relative items-stretch h-[500px]">
-          <div className="w-48 border-r border-inherit flex flex-col p-2 space-y-1">
+          <div className="w-48 shrink-0 border-r border-inherit flex flex-col p-2 space-y-1">
             <TabButton active={activeTab === 'json'} onClick={() => setActiveTab('json')} icon={<FileJson size={16} />} label="JSON Project" desc="Backup & Share" />
-            <TabButton active={activeTab === 'html'} onClick={() => setActiveTab('html')} icon={<LayoutTemplate size={16} />} label="Web (HTML/CSS)" desc="Static HTML Export" />
-            <TabButton active={activeTab === 'godot'} onClick={() => setActiveTab('godot')} icon={<Code size={16} />} label="Godot (.tscn)" desc="Godot UI Scene" />
+            <TabButton active={activeTab === 'image'} onClick={() => setActiveTab('image')} icon={<ImageIcon size={16} />} label="Image (PNG/JPG)" desc="Rendered Screenshot" />
+            <TabButton active={activeTab === 'html'} onClick={() => setActiveTab('html')} icon={<LayoutTemplate size={16} />} label="Web (HTML/CSS)" desc="Static HTML" />
+            <TabButton active={activeTab === 'godot'} onClick={() => setActiveTab('godot')} icon={<Code size={16} />} label="Godot (.tscn)" desc="Native UI Scene" />
           </div>
           
           <div className={`flex-1 p-4 relative ${isDarkTheme ? 'bg-[#0f172a]' : 'bg-slate-50'}`}>
-            <pre className={`w-full h-full p-4 rounded-lg overflow-auto text-xs font-mono border ${isDarkTheme ? 'bg-[#1e293b] border-slate-700 text-teal-300' : 'bg-white border-slate-200 text-teal-700'}`}>
+            <pre className={`w-full h-full p-4 rounded-lg overflow-auto text-xs font-mono border whitespace-pre-wrap ${isDarkTheme ? 'bg-[#1e293b] border-slate-700 text-teal-300' : 'bg-white border-slate-200 text-teal-700'}`}>
               {activeContent}
             </pre>
             
-            <button 
-              onClick={() => handleDownload(
-                activeContent, 
-                `${currentProject.name}.${activeTab === 'godot' ? 'tscn' : activeTab}`,
-                activeTab === 'json' ? 'application/json' : activeTab === 'html' ? 'text/html' : 'text/plain'
+            <div className="absolute bottom-6 right-6 flex items-center space-x-2">
+              {activeTab === 'image' ? (
+                <>
+                  <button 
+                    onClick={() => handleExportImage('jpeg')}
+                    disabled={isExportingImage}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-slate-700 text-white shadow-lg hover:bg-slate-600 font-medium disabled:opacity-50"
+                  >
+                    <Download size={18} />
+                    <span>Download JPG</span>
+                  </button>
+                  <button 
+                    onClick={() => handleExportImage('png')}
+                    disabled={isExportingImage}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30 hover:opacity-90 font-medium disabled:opacity-50"
+                  >
+                    <Download size={18} />
+                    <span>{isExportingImage ? 'Rendering...' : 'Download PNG'}</span>
+                  </button>
+                </>
+              ) : (
+                <button 
+                  onClick={() => handleDownloadFile(
+                    activeContent, 
+                    `${currentProject.name}.${activeTab === 'godot' ? 'tscn' : activeTab}`,
+                    activeTab === 'json' ? 'application/json' : activeTab === 'html' ? 'text/html' : 'text/plain'
+                  )}
+                  className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30 hover:opacity-90 font-medium"
+                >
+                  <Download size={18} />
+                  <span>Download File</span>
+                </button>
               )}
-              className="absolute bottom-6 right-6 flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30 hover:opacity-90 font-medium"
-            >
-              <Download size={18} />
-              <span>Download File</span>
-            </button>
+            </div>
           </div>
         </div>
       </div>
@@ -158,7 +223,7 @@ function TabButton({ active, onClick, icon, label, desc }: any) {
   return (
     <button 
       onClick={onClick}
-      className={`flex flex-col items-start p-3 rounded-lg text-left transition-colors ${
+      className={`flex flex-col items-start w-full p-3 rounded-lg text-left transition-colors ${
         active 
           ? (isDarkTheme ? 'bg-purple-500/20 border border-purple-500/30' : 'bg-purple-100 border border-purple-200')
           : (isDarkTheme ? 'hover:bg-slate-800 border border-transparent' : 'hover:bg-slate-100 border border-transparent')

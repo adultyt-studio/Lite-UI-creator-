@@ -7,9 +7,11 @@ interface UIStore {
   selectedElementIds: string[];
   clipboard: UIElement[];
   isDarkTheme: boolean;
+  mobileTab: 'none' | 'layers' | 'properties';
 
   setCurrentProject: (project: Project) => void;
   updateCurrentProject: (updates: Partial<Project>) => void;
+  setMobileTab: (tab: 'none' | 'layers' | 'properties') => void;
   
   addElement: (element: UIElement) => void;
   updateElement: (id: string, updates: Partial<UIElement>) => void;
@@ -45,8 +47,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
   selectedElementIds: [],
   clipboard: [],
   isDarkTheme: true,
+  mobileTab: 'none',
 
   setCurrentProject: (project) => set({ currentProject: project, selectedElementIds: [] }),
+  setMobileTab: (tab) => set({ mobileTab: tab }),
   
   updateCurrentProject: (updates) => {
     const { currentProject } = get();

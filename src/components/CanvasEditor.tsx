@@ -120,6 +120,7 @@ export default function CanvasEditor() {
       >
         {/* Device Frame / Artboard background */}
         <div 
+          id="export-canvas-frame"
           className={`absolute inset-0 shadow-2xl rounded-[40px] overflow-hidden border-[8px] ${isDarkTheme ? 'bg-[#1a1a2e] border-slate-800' : 'bg-slate-100 border-white'}`}
           style={{ width: currentProject.width, height: currentProject.height }}
         >
@@ -135,15 +136,34 @@ export default function CanvasEditor() {
           
           let glassStyles: React.CSSProperties = {};
           if (el.glassmorphism) {
-            const { blur, backgroundOpacity, borderOpacity, glow, glowColor } = el.glassmorphism;
+            const { blur, backgroundOpacity, borderOpacity, glow, glowColor, lightAngle = 135, shadowDistance = 8, shadowOpacity = 0.1 } = el.glassmorphism;
             const baseColor = el.fill || '#ffffff';
             
+            const bgRgba = hexToRgba(baseColor, backgroundOpacity);
+            const borderRgba = hexToRgba('#ffffff', borderOpacity);
+            
+            // Calculate shadow offset based on angle and distance
+            const rad = lightAngle * (Math.PI / 180);
+            // Inverting the angle calculation so that the light source pushes the shadow directly away. 
+            // e.g., Light angle 135 (top-left) should push shadows down and right (+X, +Y)
+            const shadowX = Math.cos(rad) * shadowDistance;
+            const shadowY = Math.sin(rad) * shadowDistance;
+            
+            let boxShadowStr = ``;
+            
+            // Neon Glow overrides standard drop shadow if present and > 0, otherwise standard directional shadow
+            if (glow && glow > 0) {
+                boxShadowStr = `0 8px 32px 0 ${hexToRgba(glowColor || baseColor, glow / 100)}, inset 0 0 0 1px ${hexToRgba('#ffffff', borderOpacity / 2)}`;
+            } else {
+                boxShadowStr = `${shadowX}px ${shadowY}px ${blur * 0.75}px ${hexToRgba('#000000', shadowOpacity)}`;
+            }
+
             glassStyles = {
               backdropFilter: `blur(${blur}px)`,
               WebkitBackdropFilter: `blur(${blur}px)`,
-              backgroundColor: hexToRgba(baseColor, backgroundOpacity),
-              border: `1px solid ${hexToRgba('#ffffff', borderOpacity)}`,
-              boxShadow: glow ? `0 8px 32px 0 ${hexToRgba(glowColor || baseColor, glow / 100)}, inset 0 0 0 1px ${hexToRgba('#ffffff', borderOpacity / 2)}` : `0 8px 32px 0 ${hexToRgba('#000000', 0.1)}`,
+              backgroundColor: bgRgba,
+              border: `1px solid ${borderRgba}`,
+              boxShadow: boxShadowStr,
             };
           } else if (el.type === 'rectangle' || el.type === 'circle') {
              glassStyles = {
